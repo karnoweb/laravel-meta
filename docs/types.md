@@ -7,7 +7,7 @@
 | `null` | `null` | `value_type=null` و بقیه ستون‌ها خالی | `null` |
 | `string` | `string` | `value_string` تا ۵۱۲ کاراکتر UTF-8 | همان رشته |
 | `int` | `int` | `BIGINT` | `int` |
-| `decimal` | رشته دهدهی، `int`، یا float محدود | `decimal(30,10)` | رشته با مقیاس ۱۰ |
+| `decimal` | رشته دهدهی یا int | متن canonical و کلید مرتب‌سازی با طول ثابت؛ روی MySQL/PostgreSQL همچنین `decimal(30,10)` | رشته با مقیاس ۱۰ |
 | `bool` | `bool` | `0` یا `1` | `bool` |
 | `date` | `Y-m-d` | `value_date` | `CarbonImmutable` نیمه‌شب UTC |
 | `datetime` | `DateTimeInterface` یا رشته مطلق | UTC با میکروثانیه | `CarbonImmutable` در UTC |
@@ -17,9 +17,9 @@
 
 `'100.00'` به صورت `'100.0000000000'` برمی‌گردد. `'0.10'` و `'0.1000000000'` یکی هستند. حداکثر ۲۰ رقم صحیح و ۱۰ رقم اعشار.
 
-float با `sprintf('%.10F')` ذخیره می‌شود و برای پول مناسب نیست. پول را رشته بدهید: `setMeta('price', '10.20', type: 'decimal')`.
+float پذیرفته نمی‌شود. پول را رشته بدهید: `setMeta('price', '10.20', type: 'decimal')`. رقم اعشار بیشتر از ۱۰ و بیش از ۲۰ رقم صحیح خطا می‌دهد و گرد نمی‌شود. `-0` به `0.0000000000` تبدیل می‌شود.
 
-SQLite ممکن است مقدار عددی را بدون صفرهای انتهایی نگه دارد. هنگام خواندن دوباره به مقیاس ۱۰ نرمال می‌شود. مقایسه SQL با رشته canonical انجام می‌شود.
+مقایسه و بازه از `value_decimal_text` و کلید `value_decimal_sort` استفاده می‌کند تا SQLite مقدار را به عدد شناور تقریب نزند. اگر ردیف قدیمی متن canonical نداشته باشد، خواندن خطا می‌دهد. دقتی که قبلاً از بین رفته قابل بازیابی نیست.
 
 ## تاریخ
 
@@ -37,7 +37,7 @@ SQLite ممکن است مقدار عددی را بدون صفرهای انتها
 
 فقط آرایه پذیرفته می‌شود. آبجکت، enum، resource، و `unserialize` وجود ندارد. عضو آرایه با `whereMetaJsonContains` جستجو می‌شود.
 
-در SQLite، `whereJsonContains` لاراول از `json_each` استفاده می‌کند و شیء تودرتو را مثل MySQL/PostgreSQL پیدا نمی‌کند. عضو سطح‌اول آرایه در SQLite پیدا می‌شود. این تفاوت در `Scenario17JsonSearchTest` شاخه‌بندی شده است.
+عضو سطح‌اول آرایه در هر سه درایور پیدا می‌شود. اگر fragment خودش آرایه باشد، SQLite به‌جای نتیجه خالی `MetaQueryException` می‌دهد. MySQL و PostgreSQL همان fragment را با `whereJsonContains` لاراول جستجو می‌کنند.
 
 سقف پیش‌فرض JSON یک مگابایت است (`meta.max_json_bytes`).
 

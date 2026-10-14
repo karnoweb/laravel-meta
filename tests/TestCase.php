@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use Karnoweb\Meta\Facades\Meta as MetaFacade;
 use Karnoweb\Meta\MetaServiceProvider;
 use Karnoweb\Meta\Tests\Fixtures\Product;
-use Karnoweb\Meta\Tests\Fixtures\StaticTenantResolver;
+use Karnoweb\Meta\Tests\Fixtures\StaticBranchResolver;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
@@ -25,14 +25,14 @@ abstract class TestCase extends Orchestra
         parent::setUp();
 
         Carbon::setTestNow();
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
         DB::enableQueryLog();
     }
 
     protected function tearDown(): void
     {
         Carbon::setTestNow();
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
 
         parent::tearDown();
     }

@@ -1,0 +1,79 @@
+name: Release Artifact
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - '*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve and validate version
+        id: meta
+        run: |
+          set -euo pipefail
+
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Unsupported tag format: ${TAG}"
+            exit 1
+          fi
+
+          COMPOSER_VERSION="$(jq -r '.version // empty' composer.json)"
+          if [[ -z "$COMPOSER_VERSION" ]]; then
+            echo "::error::composer.json is missing a version field"
+            exit 1
+          fi
+
+          if [[ "$COMPOSER_VERSION" != "$VERSION" ]]; then
+            echo "::error::composer.json version (${COMPOSER_VERSION}) must match tag version (${VERSION})"
+            exit 1
+          fi
+
+          PACKAGE_NAME="$(jq -r '.name' composer.json | tr '/' '-')"
+          PREFIX="${PACKAGE_NAME}-${VERSION}"
+          ARTIFACT="${PREFIX}.zip"
+
+          {
+            echo "version=${VERSION}"
+            echo "prefix=${PREFIX}"
+            echo "artifact=${ARTIFACT}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Building ${ARTIFACT}"
+
+      - name: Build Composer artifact zip
+        run: |
+          set -euo pipefail
+          git archive \
+            --format=zip \
+            --prefix="${{ steps.meta.outputs.prefix }}/" \
+            -o "${{ steps.meta.outputs.artifact }}" \
+            HEAD
+          ls -lh "${{ steps.meta.outputs.artifact }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.prefix }}
+          path: ${{ steps.meta.outputs.artifact }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ steps.meta.outputs.version }}
+          files: ${{ steps.meta.outputs.artifact }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true

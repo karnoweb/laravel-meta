@@ -15,8 +15,11 @@ final class MetaValue
     /** @var list<string> */
     public const COLUMNS = [
         'value_string',
+        'value_string_hash',
         'value_integer',
         'value_decimal',
+        'value_decimal_text',
+        'value_decimal_sort',
         'value_boolean',
         'value_date',
         'value_datetime',
@@ -36,22 +39,31 @@ final class MetaValue
             $columns[$column] = null;
         }
 
-        $stored = match ($resolved) {
-            MetaType::NULL => null,
-            MetaType::STRING => self::stringValue($value, $maxString),
-            MetaType::INT => self::intValue($value),
-            MetaType::DECIMAL => self::normalizeDecimal(self::decimalSource($value)),
-            MetaType::BOOL => self::boolValue($value),
-            MetaType::DATE => self::dateValue($value),
-            MetaType::DATETIME => MetaClock::format(self::dateTimeValue($value)),
-            MetaType::JSON => self::jsonValue($value, $maxJson),
-            default => throw new MetaTypeException("Unsupported meta type [{$resolved}]."),
-        };
+        if ($resolved === MetaType::STRING) {
+            $string = self::stringValue($value, $maxString);
+            $columns['value_string'] = $string;
+            $columns['value_string_hash'] = hash('sha256', $string);
+        } elseif ($resolved === MetaType::DECIMAL) {
+            $canonical = self::normalizeDecimal(self::decimalSource($value));
+            $columns['value_decimal'] = $canonical;
+            $columns['value_decimal_text'] = $canonical;
+            $columns['value_decimal_sort'] = self::decimalSortKey($canonical);
+        } else {
+            $stored = match ($resolved) {
+                MetaType::NULL => null,
+                MetaType::INT => self::intValue($value),
+                MetaType::BOOL => self::boolValue($value),
+                MetaType::DATE => self::dateValue($value),
+                MetaType::DATETIME => MetaClock::format(self::dateTimeValue($value)),
+                MetaType::JSON => self::jsonValue($value, $maxJson),
+                default => throw new MetaTypeException("Unsupported meta type [{$resolved}]."),
+            };
 
-        $column = MetaType::column($resolved);
+            $column = MetaType::column($resolved);
 
-        if ($column !== null) {
-            $columns[$column] = $stored;
+            if ($column !== null) {
+                $columns[$column] = $stored;
+            }
         }
 
         return [
@@ -100,7 +112,7 @@ final class MetaValue
         return match ($type) {
             MetaType::STRING => (string) $raw,
             MetaType::INT => (int) $raw,
-            MetaType::DECIMAL => self::normalizeDecimal((string) $raw),
+            MetaType::DECIMAL => self::readDecimal($attributes),
             MetaType::BOOL => self::readBool($raw),
             MetaType::DATE => self::readDate($raw),
             MetaType::DATETIME => self::readDateTime($raw),
@@ -124,12 +136,39 @@ final class MetaValue
             throw new MetaTypeException('JSON meta values cannot be compared with whereMeta. Use whereMetaJsonContains().');
         }
 
-        $column = MetaType::column($encoded['value_type']);
+        $type = $encoded['value_type'];
+
+        if ($type === MetaType::STRING) {
+            return [
+                'type' => $type,
+                'column' => 'value_string_hash',
+                'stored' => $encoded['columns']['value_string_hash'],
+                'compare' => $encoded['columns']['value_string'],
+                'guard' => [
+                    'column' => 'value_string',
+                    'stored' => $encoded['columns']['value_string'],
+                ],
+            ];
+        }
+
+        if ($type === MetaType::DECIMAL) {
+            return [
+                'type' => $type,
+                'column' => 'value_decimal_sort',
+                'stored' => $encoded['columns']['value_decimal_sort'],
+                'compare' => $encoded['columns']['value_decimal_text'],
+                'guard' => null,
+            ];
+        }
+
+        $column = MetaType::column($type);
 
         return [
-            'type' => $encoded['value_type'],
+            'type' => $type,
             'column' => (string) $column,
             'stored' => $encoded['columns'][$column],
+            'compare' => $encoded['columns'][$column],
+            'guard' => null,
         ];
     }
 
@@ -161,6 +200,10 @@ final class MetaValue
             throw new MetaTypeException('The null meta type only accepts a null value.');
         }
 
+        if (is_float($value)) {
+            throw new MetaTypeException('Decimal meta rejects PHP floats. Pass a decimal string so precision is not lost.');
+        }
+
         if ($type !== null) {
             self::assertMatchesDeclaredType($value, $type);
 
@@ -170,7 +213,6 @@ final class MetaValue
         return match (true) {
             is_string($value) => MetaType::STRING,
             is_int($value) => MetaType::INT,
-            is_float($value) => MetaType::DECIMAL,
             is_bool($value) => MetaType::BOOL,
             $value instanceof DateTimeInterface => MetaType::DATETIME,
             is_array($value) => MetaType::JSON,
@@ -183,7 +225,7 @@ final class MetaValue
         $ok = match ($type) {
             MetaType::STRING => is_string($value),
             MetaType::INT => is_int($value),
-            MetaType::DECIMAL => is_string($value) || is_int($value) || is_float($value),
+            MetaType::DECIMAL => is_string($value) || is_int($value),
             MetaType::BOOL => is_bool($value),
             MetaType::DATE => is_string($value),
             MetaType::DATETIME => $value instanceof DateTimeInterface || is_string($value),
@@ -231,19 +273,11 @@ final class MetaValue
         }
 
         if (is_float($value)) {
-            if (! is_finite($value)) {
-                throw new MetaTypeException('Decimal meta rejects non-finite floats.');
-            }
-
-            $formatted = sprintf('%.10F', $value);
-
-            return str_contains($formatted, '.')
-                ? rtrim(rtrim($formatted, '0'), '.')
-                : $formatted;
+            throw new MetaTypeException('Decimal meta rejects PHP floats. Pass a decimal string so precision is not lost.');
         }
 
         if (! is_string($value)) {
-            throw new MetaTypeException('Decimal meta requires a decimal string, int, or finite float.');
+            throw new MetaTypeException('Decimal meta requires a decimal string or int.');
         }
 
         return trim($value);
@@ -274,6 +308,38 @@ final class MetaValue
         $zero = $integer === '0' && $fraction === '0000000000';
 
         return ($negative && ! $zero ? '-' : '').$integer.'.'.$fraction;
+    }
+
+    public static function decimalSortKey(string $canonical): string
+    {
+        $negative = str_starts_with($canonical, '-');
+        [$integer, $fraction] = explode('.', ltrim($canonical, '-'));
+        $digits = str_pad($integer, 20, '0', STR_PAD_LEFT).$fraction;
+
+        if ($negative) {
+            $digits = implode('', array_map(
+                static fn (string $digit): string => (string) (9 - (int) $digit),
+                str_split($digits),
+            ));
+
+            return '0'.$digits;
+        }
+
+        return '1'.$digits;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private static function readDecimal(array $attributes): string
+    {
+        $text = $attributes['value_decimal_text'] ?? null;
+
+        if (! is_string($text) || $text === '') {
+            throw new MetaTypeException('Stored decimal has no canonical text. Precision that was already lost cannot be recovered.');
+        }
+
+        return self::normalizeDecimal($text);
     }
 
     private static function compareDecimal(string $left, string $right): int

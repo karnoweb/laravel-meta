@@ -10,7 +10,7 @@
 | [versioning.md](versioning.md) | تاریخچه، آینده، گذشته، tombstone |
 | [search.md](search.md) | scopeهای جستجو |
 | [performance.md](performance.md) | تعداد کوئری، ایندکس، بنچمارک |
-| [tenant.md](tenant.md) | جداسازی tenant |
+| [branch.md](branch.md) | جداسازی branch |
 | [rules.md](rules.md) | قفل، اتمی بودن، حذف |
 | [errors.md](errors.md) | Exceptionها |
 | [testing.md](testing.md) | اجرای تست و بنچمارک |
@@ -18,8 +18,8 @@
 
 ## واژه‌نامه
 
-- **root:** یک ردیف `metas` برای یک tenant، یک مدل، و یک کلید.
+- **root:** یک ردیف `metas` برای یک branch، یک مدل، و یک کلید.
 - **version:** یک ردیف `meta_versions`. فقط کلید نسخه‌دار این ردیف را دارد.
 - **tombstone:** نسخه با `is_deleted=1`. کلید از آن لحظه غایب است و به مقدار قبلی برنمی‌گردد.
-- **tenant key:** رشته حداکثر ۶۴ کاراکتر. وقتی tenant خاموش است مقدارش خالی است.
+- **branch key:** رشته حداکثر ۶۴ کاراکتر. وقتی branch خاموش است مقدارش خالی است.
 - **decimal:** رشته دهدهی با مقیاس ۱۰، نه float.

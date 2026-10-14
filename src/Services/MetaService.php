@@ -9,6 +9,7 @@ use Closure;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Events\TransactionRolledBack;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
@@ -24,8 +25,13 @@ use WeakMap;
 
 class MetaService
 {
-    /** @var WeakMap<Model, array{tenant: string, complete: bool, keys: array<string, array{present: bool, value: mixed}>}> */
+    public const ID_CHUNK = 500;
+
+    /** @var WeakMap<Model, array{branch: string, complete: bool, keys: array<string, array{present: bool, value: mixed}>}> */
     private WeakMap $cache;
+
+    /** @var array<string, true> */
+    private array $rollbackBound = [];
 
     public function __construct()
     {
@@ -177,6 +183,53 @@ class MetaService
         return $current->value();
     }
 
+    /**
+     * @param  list<string>|null  $keys
+     * @return array<string, mixed>
+     */
+    public function getMany(Model $owner, ?array $keys = null): array
+    {
+        $this->assertPersisted($owner);
+
+        if ($keys === []) {
+            return [];
+        }
+
+        if ($keys !== null) {
+            foreach ($keys as $index => $key) {
+                $this->assertKey($owner, (string) $key);
+                $keys[$index] = (string) $key;
+            }
+        }
+
+        if (! $this->covers($owner, $keys)) {
+            $this->load([$owner], $keys);
+        }
+
+        $state = $this->cache[$owner] ?? null;
+
+        if (! is_array($state)) {
+            return [];
+        }
+
+        $order = $keys ?? array_keys($state['keys']);
+        $values = [];
+
+        foreach ($order as $key) {
+            $row = $state['keys'][$key] ?? null;
+
+            if (is_array($row) && $row['present']) {
+                $values[$key] = $row['value'];
+            }
+        }
+
+        if ($keys === null) {
+            ksort($values);
+        }
+
+        return $values;
+    }
+
     public function getAt(Model $owner, string $key, DateTimeInterface|string $at, mixed $default = null): mixed
     {
         $this->assertPersisted($owner);
@@ -275,6 +328,28 @@ class MetaService
             ->get();
     }
 
+    public function historyPage(Model $owner, string $key, int $perPage = 50): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        $this->assertPersisted($owner);
+        $this->assertKey($owner, $key);
+
+        if ($perPage < 1) {
+            throw new MetaException('History page size must be at least 1.');
+        }
+
+        $meta = $this->find($owner, $key);
+        $query = MetaVersion::on($owner->getConnectionName())->whereRaw('1 = 0');
+
+        if ($meta !== null && $meta->versioned) {
+            $query = MetaVersion::on($meta->getConnectionName())
+                ->where('meta_id', $meta->getKey())
+                ->orderBy('effective_at')
+                ->orderBy('id');
+        }
+
+        return $query->paginate($perPage);
+    }
+
     /**
      * @param  iterable<Model>  $models
      * @param  list<string>|null  $keys
@@ -305,7 +380,7 @@ class MetaService
             }
         }
 
-        $tenant = $this->tenantKey();
+        $branch = $this->branchKey();
         $now = MetaClock::now();
         $groups = [];
 
@@ -315,7 +390,7 @@ class MetaService
         }
 
         foreach ($groups as $group) {
-            $this->loadGroup($group, $keys, $tenant, $now);
+            $this->loadGroup($group, $keys, $branch, $now);
         }
     }
 
@@ -373,26 +448,35 @@ class MetaService
             return 0;
         }
 
-        $tenant = $this->tenantKey();
+        $branch = $this->branchKey();
         $deleted = 0;
 
         foreach ($groups as $group) {
             /** @var Model $prototype */
             $prototype = $group['model'];
+            $this->bindRollback($prototype);
             $ids = array_values($group['ids']);
-            $metaIds = $this->query($prototype)
-                ->where('tenant_key', $tenant)
-                ->where('metable_type', $prototype->getMorphClass())
-                ->whereIn('metable_id', $ids)
-                ->pluck('id');
+            $connectionName = $prototype->getConnectionName();
 
-            if ($metaIds->isEmpty()) {
-                continue;
-            }
+            $deleted += (int) $prototype->getConnection()->transaction(function () use ($prototype, $branch, $ids, $connectionName): int {
+                $count = 0;
 
-            $connection = $prototype->getConnectionName();
-            MetaVersion::on($connection)->whereIn('meta_id', $metaIds->all())->delete();
-            $deleted += Meta::on($connection)->whereIn('id', $metaIds->all())->delete();
+                foreach (array_chunk($ids, self::ID_CHUNK) as $idChunk) {
+                    $metaIds = $this->query($prototype)
+                        ->where('branch_key', $branch)
+                        ->where('metable_type', $prototype->getMorphClass())
+                        ->whereIn('metable_id', $idChunk)
+                        ->pluck('id')
+                        ->all();
+
+                    foreach (array_chunk($metaIds, self::ID_CHUNK) as $metaChunk) {
+                        MetaVersion::on($connectionName)->whereIn('meta_id', $metaChunk)->delete();
+                        $count += Meta::on($connectionName)->whereIn('id', $metaChunk)->delete();
+                    }
+                }
+
+                return $count;
+            });
 
             foreach ($group['instances'] as $instance) {
                 $this->forget($instance);
@@ -402,9 +486,9 @@ class MetaService
         return $deleted;
     }
 
-    public function tenantKey(): string
+    public function branchKey(): string
     {
-        $enabled = config('meta.tenant.enabled');
+        $enabled = config('meta.branch.enabled');
 
         if ($enabled === null) {
             $enabled = false;
@@ -414,26 +498,38 @@ class MetaService
             return '';
         }
 
-        $resolver = config('meta.tenant.resolver');
+        $resolver = config('meta.branch.resolver');
 
         if (! is_string($resolver) || $resolver === '') {
-            throw new MetaException('Tenant resolution is enabled but meta.tenant.resolver is missing. Refusing to fall back to the public tenant.');
+            throw new MetaException('Branch resolution is enabled but meta.branch.resolver is missing. Refusing to fall back to the public branch.');
         }
 
         if (! app()->bound($resolver) && ! class_exists($resolver)) {
-            throw new MetaException("Tenant resolver [{$resolver}] cannot be resolved.");
+            throw new MetaException("Branch resolver [{$resolver}] cannot be resolved.");
         }
 
         $instance = app()->make($resolver);
 
         if (! is_callable($instance)) {
-            throw new MetaException("Tenant resolver [{$resolver}] is not invokable.");
+            throw new MetaException("Branch resolver [{$resolver}] is not invokable.");
         }
 
         $key = $instance();
 
         if (! is_string($key) || $key === '' || mb_strlen($key) > 64 || preg_match('/[\x00-\x1F\x7F]/', $key) === 1) {
-            throw new MetaException('Tenant resolver returned an invalid tenant key. A non-empty string of at most 64 characters is required.');
+            throw new MetaException('Branch resolver returned an invalid branch key. A non-empty string of at most 64 characters is required.');
+        }
+
+        if ($key !== trim($key) || preg_match('/^\s|\s$/u', $key) === 1) {
+            throw new MetaException('Branch key must not start or end with whitespace. It is not trimmed or lowercased.');
+        }
+
+        if (class_exists(\Normalizer::class)) {
+            $normalized = \Normalizer::normalize($key, \Normalizer::FORM_C);
+
+            if (! is_string($normalized) || $normalized !== $key) {
+                throw new MetaException('Branch key must already be NFC-normalized Unicode. It is not rewritten.');
+            }
         }
 
         return $key;
@@ -441,8 +537,7 @@ class MetaService
 
     public function assertKey(Model $owner, string $key): void
     {
-        $max = config('meta.max_key_length');
-        $max = is_int($max) ? $max : 120;
+        $max = $this->bounded('meta.max_key_length', 120, 120);
 
         if ($key === '' || ! mb_check_encoding($key, 'UTF-8') || mb_strlen($key) > $max || preg_match('/[\x00-\x1F\x7F]/', $key) === 1) {
             throw new MetaException('Meta key is empty, too long, or contains control characters.');
@@ -459,16 +554,19 @@ class MetaService
 
     public function maxString(): int
     {
-        $value = config('meta.max_string_length');
-
-        return is_int($value) ? $value : 512;
+        return $this->bounded('meta.max_string_length', 512, 512);
     }
 
     public function maxJson(): int
     {
         $value = config('meta.max_json_bytes');
+        $value = is_int($value) ? $value : 1048576;
 
-        return is_int($value) ? $value : 1048576;
+        if ($value < 1) {
+            throw new MetaException('meta.max_json_bytes must be a positive integer. The limit is bytes of encoded JSON, not characters.');
+        }
+
+        return $value;
     }
 
     private function assertPersisted(Model $owner): void
@@ -507,7 +605,7 @@ class MetaService
     private function identity(Model $owner, string $key): array
     {
         return [
-            'tenant_key' => $this->tenantKey(),
+            'branch_key' => $this->branchKey(),
             'metable_type' => $owner->getMorphClass(),
             'metable_id' => $this->ownerId($owner),
             'key' => $key,
@@ -637,7 +735,7 @@ class MetaService
      * @param  list<Model>  $owners
      * @param  list<string>|null  $keys
      */
-    private function loadGroup(array $owners, ?array $keys, string $tenant, CarbonImmutable $now): void
+    private function loadGroup(array $owners, ?array $keys, string $branch, CarbonImmutable $now): void
     {
         $prototype = $owners[0];
         $ids = [];
@@ -646,12 +744,24 @@ class MetaService
             $ids[$this->ownerId($owner)] = $this->ownerId($owner);
         }
 
-        $metas = $this->query($prototype)
-            ->where('tenant_key', $tenant)
-            ->where('metable_type', $prototype->getMorphClass())
-            ->whereIn('metable_id', array_values($ids))
-            ->when($keys !== null, fn ($query) => $query->whereIn('key', $keys))
-            ->get();
+        $metas = new EloquentCollection;
+
+        foreach (array_chunk(array_values($ids), self::ID_CHUNK) as $idChunk) {
+            $query = $this->query($prototype)
+                ->where('branch_key', $branch)
+                ->where('metable_type', $prototype->getMorphClass())
+                ->whereIn('metable_id', $idChunk);
+
+            if ($keys === null) {
+                $metas = $metas->merge($query->get());
+
+                continue;
+            }
+
+            foreach (array_chunk($keys, self::ID_CHUNK) as $keyChunk) {
+                $metas = $metas->merge((clone $query)->whereIn('key', $keyChunk)->get());
+            }
+        }
 
         $versionedIds = $metas->where('versioned', true)->pluck('id')->all();
         $currents = $versionedIds === []
@@ -696,8 +806,9 @@ class MetaService
                 $resolved[$key] = ['present' => true, 'value' => $current->value()];
             }
 
+            $this->bindRollback($owner);
             $this->cache[$owner] = [
-                'tenant' => $tenant,
+                'branch' => $branch,
                 'complete' => $keys === null,
                 'keys' => $resolved,
             ];
@@ -715,20 +826,26 @@ class MetaService
         $connection = $owner->getConnection();
         $grammar = $connection->getQueryGrammar();
         $table = $grammar->wrapTable('meta_versions');
-        $placeholders = implode(', ', array_fill(0, count($metaIds), '?'));
-        $sql = 'select * from (select '.$table.'.*, row_number() over (partition by meta_id order by effective_at desc, id desc) as meta_rn from '.$table.' where meta_id in ('.$placeholders.') and effective_at <= ?) ranked where meta_rn = 1';
-        $rows = $connection->select($sql, [...array_values($metaIds), MetaClock::format($at)]);
-        $hydrated = [];
+        $hydrated = new EloquentCollection;
 
-        foreach ($rows as $row) {
-            $attributes = (array) $row;
-            unset($attributes['meta_rn']);
-            $hydrated[] = $attributes;
+        foreach (array_chunk(array_values($metaIds), self::ID_CHUNK) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '?'));
+            $sql = 'select * from (select '.$table.'.*, row_number() over (partition by meta_id order by effective_at desc, id desc) as meta_rn from '.$table.' where meta_id in ('.$placeholders.') and effective_at <= ?) ranked where meta_rn = 1';
+            $rows = $connection->select($sql, [...$chunk, MetaClock::format($at)]);
+            $attributes = [];
+
+            foreach ($rows as $row) {
+                $rowAttributes = (array) $row;
+                unset($rowAttributes['meta_rn']);
+                $attributes[] = $rowAttributes;
+            }
+
+            $hydrated = $hydrated->merge(
+                MetaVersion::on($owner->getConnectionName())->hydrate($attributes),
+            );
         }
 
-        return MetaVersion::on($owner->getConnectionName())
-            ->hydrate($hydrated)
-            ->keyBy('meta_id');
+        return $hydrated->keyBy('meta_id');
     }
 
     /**
@@ -742,7 +859,7 @@ class MetaService
 
         $state = $this->cache[$owner];
 
-        if ($state['tenant'] !== $this->tenantKey()) {
+        if ($state['branch'] !== $this->branchKey()) {
             $this->forget($owner);
 
             return null;
@@ -757,6 +874,72 @@ class MetaService
         }
 
         return null;
+    }
+
+    /**
+     * @param  list<string>|null  $keys
+     */
+    private function covers(Model $owner, ?array $keys): bool
+    {
+        if (! isset($this->cache[$owner])) {
+            return false;
+        }
+
+        $state = $this->cache[$owner];
+
+        if ($state['branch'] !== $this->branchKey()) {
+            $this->forget($owner);
+
+            return false;
+        }
+
+        if ($state['complete'] || $keys === null) {
+            return $state['complete'];
+        }
+
+        foreach ($keys as $key) {
+            if (! array_key_exists($key, $state['keys'])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function bindRollback(Model $owner): void
+    {
+        $name = $owner->getConnectionName() ?? $owner->getConnection()->getName();
+
+        if (isset($this->rollbackBound[$name])) {
+            return;
+        }
+
+        $this->rollbackBound[$name] = true;
+        $dispatcher = $owner->getConnection()->getEventDispatcher();
+
+        if ($dispatcher === null) {
+            return;
+        }
+
+        $dispatcher->listen(TransactionRolledBack::class, function (TransactionRolledBack $event) use ($name): void {
+            if ($event->connectionName !== $name) {
+                return;
+            }
+
+            $this->cache = new WeakMap;
+        });
+    }
+
+    private function bounded(string $name, int $default, int $ceiling): int
+    {
+        $value = config($name);
+        $value = is_int($value) ? $value : $default;
+
+        if ($value < 1 || $value > $ceiling) {
+            throw new MetaException("{$name} must be an integer from 1 to {$ceiling}. The database column is not widened and values are not truncated.");
+        }
+
+        return $value;
     }
 
     private function forget(Model $owner): void
@@ -775,6 +958,7 @@ class MetaService
 
     private function transaction(Model $owner, Closure $callback): mixed
     {
+        $this->bindRollback($owner);
         $attempt = 0;
 
         while (true) {

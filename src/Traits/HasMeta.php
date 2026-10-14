@@ -39,7 +39,7 @@ trait HasMeta
             $this->getKeyName(),
         );
 
-        return $relation->where($related->getTable().'.tenant_key', app(MetaManager::class)->service()->tenantKey());
+        return $relation->where($related->getTable().'.branch_key', app(MetaManager::class)->service()->branchKey());
     }
 
     /**
@@ -83,6 +83,15 @@ trait HasMeta
         return app(MetaManager::class)->get($this, $key, $default);
     }
 
+    /**
+     * @param  list<string>|null  $keys
+     * @return array<string, mixed>
+     */
+    public function getMetas(?array $keys = null): array
+    {
+        return app(MetaManager::class)->getMany($this, $keys);
+    }
+
     public function getMetaAt(string $key, DateTimeInterface|string $at, mixed $default = null): mixed
     {
         return app(MetaManager::class)->getAt($this, $key, $at, $default);
@@ -101,6 +110,11 @@ trait HasMeta
     public function metaHistory(string $key): Collection
     {
         return app(MetaManager::class)->history($this, $key);
+    }
+
+    public function metaHistoryPage(string $key, int $perPage = 50): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return app(MetaManager::class)->historyPage($this, $key, $perPage);
     }
 
     public function refreshMeta(): static

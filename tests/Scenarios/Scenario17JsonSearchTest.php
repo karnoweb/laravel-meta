@@ -21,12 +21,11 @@ class Scenario17JsonSearchTest extends ScenarioTestCase
         $this->assertSame([], $this->ids(Product::query()->whereMetaJsonContains('tags', 'vip')->where('name', 'free')->get()));
         $this->assertSame(['vip', 'sale'], $vip->getMeta('tags'));
 
-        $nested = $this->ids(Product::query()->whereMetaJsonContains('profile', ['tier' => ['name' => 'gold']])->get());
-
         if (DB::getDriverName() === 'sqlite') {
-            $this->assertSame([], $nested);
+            $this->expectException(\Karnoweb\Meta\Exceptions\MetaQueryException::class);
+            Product::query()->whereMetaJsonContains('profile', ['tier' => ['name' => 'gold']])->get();
         } else {
-            $this->assertSame([$vip->id], $nested);
+            $this->assertSame([$vip->id], $this->ids(Product::query()->whereMetaJsonContains('profile', ['tier' => ['name' => 'gold']])->get()));
         }
     }
 }

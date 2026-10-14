@@ -37,6 +37,15 @@ class MetaManager
         return $this->metas->get($owner, $key, $default);
     }
 
+    /**
+     * @param  list<string>|null  $keys
+     * @return array<string, mixed>
+     */
+    public function getMany(Model $owner, ?array $keys = null): array
+    {
+        return $this->metas->getMany($owner, $keys);
+    }
+
     public function getAt(Model $owner, string $key, DateTimeInterface|string $at, mixed $default = null): mixed
     {
         return $this->metas->getAt($owner, $key, $at, $default);
@@ -55,6 +64,11 @@ class MetaManager
     public function history(Model $owner, string $key): Collection
     {
         return $this->metas->history($owner, $key);
+    }
+
+    public function historyPage(Model $owner, string $key, int $perPage = 50): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return $this->metas->historyPage($owner, $key, $perPage);
     }
 
     /**

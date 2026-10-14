@@ -13,7 +13,7 @@ use Karnoweb\Meta\Exceptions\UnsavedModelException;
 use Karnoweb\Meta\Facades\Meta;
 use Karnoweb\Meta\Tests\Fixtures\Product;
 use Karnoweb\Meta\Tests\Fixtures\RestrictedProduct;
-use Karnoweb\Meta\Tests\Fixtures\StaticTenantResolver;
+use Karnoweb\Meta\Tests\Fixtures\StaticBranchResolver;
 use Karnoweb\Meta\Tests\Fixtures\UlidRecord;
 use Karnoweb\Meta\Tests\Fixtures\User;
 use Karnoweb\Meta\Tests\Fixtures\UuidRecord;
@@ -150,11 +150,11 @@ class MetaCrudTest extends TestCase
         $this->assertFalse((bool) DB::table('metas')->where('key', 'color')->value('versioned'));
     }
 
-    public function test_tenant_resolution_is_fail_closed_and_isolates_two_tenants(): void
+    public function test_branch_resolution_is_fail_closed_and_isolates_two_branches(): void
     {
         config([
-            'meta.tenant.enabled' => true,
-            'meta.tenant.resolver' => null,
+            'meta.branch.enabled' => true,
+            'meta.branch.resolver' => null,
         ]);
 
         $product = $this->product();
@@ -166,42 +166,42 @@ class MetaCrudTest extends TestCase
             $this->assertSame(0, DB::table('metas')->count());
         }
 
-        config(['meta.tenant.resolver' => StaticTenantResolver::class]);
-        StaticTenantResolver::$key = '';
+        config(['meta.branch.resolver' => StaticBranchResolver::class]);
+        StaticBranchResolver::$key = '';
 
         try {
             $product->setMeta('color', 'red');
-            $this->fail('An empty tenant key must fail closed.');
+            $this->fail('An empty branch key must fail closed.');
         } catch (MetaException) {
             $this->assertSame(0, DB::table('metas')->count());
         }
 
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
         $product->setMeta('color', 'red');
         $product->setMeta('price', '10.00', versioned: true, type: 'decimal');
 
-        StaticTenantResolver::$key = 'tenant-b';
+        StaticBranchResolver::$key = 'branch-b';
         $this->assertFalse($product->hasMeta('color'));
         $this->assertSame('blue', $product->getMeta('color', 'blue'));
         $product->setMeta('color', 'blue');
         $product->setMeta('price', '20.00', versioned: true, type: 'decimal');
 
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
         $this->assertSame('red', $product->getMeta('color'));
         $this->assertSame('10.0000000000', $product->getMeta('price'));
         $this->assertCount(1, $product->metaHistory('price'));
 
-        StaticTenantResolver::$key = 'tenant-b';
+        StaticBranchResolver::$key = 'branch-b';
         $this->assertSame('blue', $product->getMeta('color'));
         $this->assertSame('20.0000000000', $product->getMeta('price'));
         $this->assertTrue($product->deleteMeta('color'));
         $this->assertFalse($product->hasMeta('color'));
 
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
         $this->assertTrue($product->hasMeta('color'));
         $this->assertSame('red', $product->getMeta('color'));
         $this->assertSame(1, DB::table('metas')->where('key', 'color')->count());
-        $this->assertSame('tenant-a', DB::table('metas')->where('key', 'color')->value('tenant_key'));
+        $this->assertSame('branch-a', DB::table('metas')->where('key', 'color')->value('branch_key'));
     }
 
     public function test_facade_and_trait_share_same_behavior(): void

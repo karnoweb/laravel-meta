@@ -26,9 +26,11 @@ SQLite این قفل را اثبات نمی‌کند. تست هم‌زمانی �
 
 حذف نرم مدل متادیتا را نگه می‌دارد.
 
-حذف سخت یا `forceDelete()` فقط اگر `meta.purge_on_force_delete` برابر `true` باشد root و نسخه‌ها را در tenant جاری پاک می‌کند. پیش‌فرض `false` است.
+حذف سخت یا `forceDelete()` فقط اگر `meta.purge_on_force_delete` برابر `true` باشد root و نسخه‌ها را در branch جاری پاک می‌کند. پیش‌فرض `false` است.
 
-`Model::query()->where(...)->delete()` رویداد مدل را اجرا نمی‌کند و purge نمی‌شود. برای حذف دسته‌ای `Meta::purgeMany($models)` را در tenant درست صدا بزنید.
+`purge` و `purgeMany` حذف root و نسخه را در یک تراکنش روی connection همان گروه انجام می‌دهند. مدل‌های چند connection یک تراکنش سراسری نیستند. شناسه‌ها ۵۰۰تایی حذف می‌شوند. اگر حذف root شکست بخورد، حذف نسخه‌های همان تراکنش برمی‌گردد.
+
+`Model::query()->where(...)->delete()` رویداد مدل را اجرا نمی‌کند و purge نمی‌شود. برای حذف دسته‌ای `Meta::purgeMany($models)` را در branch درست صدا بزنید.
 
 ## مدل ذخیره‌نشده
 

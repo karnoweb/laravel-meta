@@ -23,7 +23,7 @@ class MetaTypesTest extends TestCase
         $product->setMeta('count', 42);
         $product->setMeta('zero', 0);
         $product->setMeta('negative', -7);
-        $product->setMeta('ratio', 1.5);
+        $product->setMeta('ratio', '1.5', type: 'decimal');
         $product->setMeta('price', '120.5000000000', type: 'decimal');
         $product->setMeta('visible', false);
         $product->setMeta('featured', true);
@@ -79,6 +79,8 @@ class MetaTypesTest extends TestCase
 
         $this->assertRejected(fn () => $product->setMeta('price', '10.12345678901', type: 'decimal'));
         $this->assertRejected(fn () => $product->setMeta('price', str_repeat('9', 21), type: 'decimal'));
+        $this->assertRejected(fn () => $product->setMeta('price', 1.5, type: 'decimal'));
+        $this->assertRejected(fn () => $product->setMeta('ratio', 1.5));
         $this->assertRejected(fn () => $product->setMeta('birthday', '2027-02-31', type: 'date'));
         $this->assertRejected(fn () => $product->setMeta('birthday', '01/05/2027', type: 'date'));
         $this->assertRejected(fn () => $product->setMeta('blob', new stdClass));

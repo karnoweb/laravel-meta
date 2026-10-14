@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Schema;
 use Karnoweb\Meta\Facades\Meta;
 use Karnoweb\Meta\Tests\Fixtures\Product;
 use Karnoweb\Meta\Tests\Fixtures\SoftProduct;
-use Karnoweb\Meta\Tests\Fixtures\StaticTenantResolver;
+use Karnoweb\Meta\Tests\Fixtures\StaticBranchResolver;
 use Karnoweb\Meta\Tests\TestCase;
 
 class MetaLifecycleTest extends TestCase
@@ -59,23 +59,23 @@ class MetaLifecycleTest extends TestCase
         $this->assertSame('green', $kept->getMeta('color'));
     }
 
-    public function test_purge_is_limited_to_the_active_tenant_and_owner_connection(): void
+    public function test_purge_is_limited_to_the_active_branch_and_owner_connection(): void
     {
         config([
-            'meta.tenant.enabled' => true,
-            'meta.tenant.resolver' => StaticTenantResolver::class,
+            'meta.branch.enabled' => true,
+            'meta.branch.resolver' => StaticBranchResolver::class,
         ]);
         $product = $this->product();
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
         $product->setMeta('color', 'red');
-        StaticTenantResolver::$key = 'tenant-b';
+        StaticBranchResolver::$key = 'branch-b';
         $product->setMeta('color', 'blue');
 
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
         $this->assertSame(1, Meta::purge($product));
         $this->assertFalse($product->hasMeta('color'));
 
-        StaticTenantResolver::$key = 'tenant-b';
+        StaticBranchResolver::$key = 'branch-b';
         $this->assertSame('blue', $product->getMeta('color'));
         $this->assertTrue(Schema::hasTable('metas'));
     }
@@ -99,38 +99,15 @@ class MetaLifecycleTest extends TestCase
                 $table->string('name');
                 $table->timestamps();
             });
-            Schema::connection('alt')->create('metas', function ($table): void {
-                $table->id();
-                $table->string('tenant_key', 64)->default('');
-                $table->string('metable_type', 150);
-                $table->string('metable_id', 64);
-                $table->string('key', 120);
-                $table->boolean('versioned')->default(false);
-                $table->string('value_type', 16)->nullable();
-                $table->string('value_string', 512)->nullable();
-                $table->bigInteger('value_integer')->nullable();
-                $table->decimal('value_decimal', 30, 10)->nullable();
-                $table->boolean('value_boolean')->nullable();
-                $table->date('value_date')->nullable();
-                $table->dateTime('value_datetime')->nullable();
-                $table->json('value_json')->nullable();
-                $table->timestamps();
-                $table->unique(['tenant_key', 'metable_type', 'metable_id', 'key']);
-            });
-            Schema::connection('alt')->create('meta_versions', function ($table): void {
-                $table->id();
-                $table->unsignedBigInteger('meta_id');
-                $table->dateTime('effective_at');
-                $table->boolean('is_deleted')->default(false);
-                $table->string('value_type', 16)->nullable();
-                $table->string('value_string', 512)->nullable();
-                $table->bigInteger('value_integer')->nullable();
-                $table->decimal('value_decimal', 30, 10)->nullable();
-                $table->boolean('value_boolean')->nullable();
-                $table->date('value_date')->nullable();
-                $table->dateTime('value_datetime')->nullable();
-                $table->json('value_json')->nullable();
-                $table->timestamps();
+
+            app('migrator')->usingConnection('alt', function (): void {
+                $migrator = app('migrator');
+
+                if (! $migrator->repositoryExists()) {
+                    $migrator->getRepository()->createRepository();
+                }
+
+                $migrator->run([dirname(__DIR__, 2).'/database/migrations']);
             });
 
             $product = new Product;

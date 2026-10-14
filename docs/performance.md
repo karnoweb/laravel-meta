@@ -22,20 +22,22 @@
 
 `withMeta` و `Meta::load` نتیجه را روی نمونه مدل نگه می‌دارند. جلو رفتن ساعت، نسخه آینده را داخل همان snapshot نشان نمی‌دهد. `refreshMeta()` دوباره می‌خواند. `setMeta` کش همان مدل را پاک می‌کند.
 
-اگر tenant وسط عمر یک نمونه مدل عوض شود، کش قبلی باطل می‌شود.
+اگر branch وسط عمر یک نمونه مدل عوض شود، کش قبلی باطل می‌شود.
 
 ## ایندکس‌ها
 
 | نام | ستون‌ها |
 | --- | --- |
-| `metas_owner_key_unique` | `tenant_key, metable_type, metable_id, key` |
-| `metas_owner_index` | `tenant_key, metable_type, metable_id` |
-| `metas_string_lookup_index` | `tenant_key, key, value_type, value_string` |
-| `metas_integer_lookup_index` | `tenant_key, key, value_type, value_integer` |
-| `metas_decimal_lookup_index` | `tenant_key, key, value_type, value_decimal` |
+| `metas_owner_key_unique` | `branch_key, metable_type, metable_id, key` |
+| `metas_owner_index` | `branch_key, metable_type, metable_id` |
+| `metas_string_hash_index` | `branch_key, key, value_type, value_string_hash` |
+| `metas_integer_lookup_index` | `branch_key, key, value_type, value_integer` |
+| `metas_decimal_lookup_index` | `branch_key, key, value_type, value_decimal_sort` |
 | `meta_versions_resolution_index` | `meta_id, effective_at, id` |
 
-ایندکس جدا برای bool و date ساخته نشده است. تخمین طول ایندکس MySQL با `utf8mb4` زیر ۳۰۷۲ بایت است. این تخمین روی MySQL واقعی این محیط اندازه‌گیری نشده است.
+رشته کامل داخل ایندکس btree نیست. برابری از `value_string_hash` استفاده می‌کند و بعد خود `value_string` را هم می‌سنجد. `LIKE` از این hash استفاده نمی‌کند. مسیر جستجو همچنان `whereExists` است. پلن جایگزین فقط وقتی عوض می‌شود که `EXPLAIN` روی MySQL یا PostgreSQL سریع‌تر بودنش را نشان بدهد. این مقایسه در این محیط اجرا نشده است.
+
+شناسه‌های بارگذاری و purge در دسته‌های ۵۰۰تایی فرستاده می‌شوند. برای ۱۰۰۰ مدل، تعداد کوئری متادیتا به تعداد دسته‌ها بستگی دارد، نه به تعداد مدل‌ها.
 
 `DatabaseCompatibilityTest` برای کوئری `whereMeta` یک `EXPLAIN` می‌گیرد و فقط غیرخالی بودن نتیجه را چک می‌کند. متن پلن بین دیتابیس‌ها مقایسه نمی‌شود.
 
@@ -51,24 +53,4 @@
 
 ## نتیجه اجرای محلی
 
-تاریخ: 2026-10-14. دستگاه همین ویندوز، PHP 8.4.22، SQLite 3.51.3. دیتابیس فایل `bench/results/bench.sqlite` بود، نه سرور. این عددها SLA نیستند و روی MySQL/PostgreSQL تکرار نشده‌اند.
-
-نوشتن ۴۰۰۰۰ root برای ۱۰۰۰۰ محصول (چهار کلید، و ارتقای `price` روی هر دهمین محصول) ۳۹۱۴۴۹ میلی‌ثانیه طول کشید. در پایان ۱۰۰۰ root نسخه‌دار، ۲۰۰۰ ردیف `meta_versions`، و اوج حافظه ۲۲ مگابایت بود. هر `setMeta` تراکنش جداست؛ این زمان هزینه تراکنش SQLite است، نه یک bulk insert.
-
-خواندن روی همان فایل، بعد از گرم شدن کش دیسک، با ۷ تکرار:
-
-| عملیات | median (ms) | p95 (ms) | کوئری |
-| --- | ---: | ---: | ---: |
-| خواندن یک `color` عادی، شامل لود مدل | 0.949 | 1.115 | 2 |
-| `whereMeta('color')` | 36.725 | 46.652 | 1 |
-| `whereMeta('count', '>=', 10)` | 40.708 | 48.732 | 1 |
-| `whereMeta('price')` decimal | 42.528 | 47.490 | 1 |
-| `whereMeta('started_at')` datetime | 31.218 | 35.013 | 1 |
-| `whereMeta('price', '>=', '10.00')` | 33.112 | 38.386 | 1 |
-| ۱۰۰ مدل بدون `withMeta` و سپس `getMeta` | 52.976 | 58.761 | 211 |
-| `withMeta` برای ۱۰۰ مدل | 13.383 | 14.151 | 3 |
-| `withMeta` برای ۱۰۰۰ مدل | 120.479 | 334.580 | 3 |
-
-p95 بارگذاری ۱۰۰۰ مدل در همین اجرا ۳۳۵ میلی‌ثانیه شد در حالی که median حدود ۱۲۰ بود. پراکندگی زیاد است؛ از این جدول آستانه زمانی نسازید. حد سخت همان تعداد کوئری در تست Functional است.
-
-۱۰۰هزار و یک میلیون در این محیط اجرا نشد.
+بعد از افزودن `value_string_hash` و `value_decimal_sort` بنچمارک دوباره اجرا نشده است. عددهای اجرای قبلی برای این اسکیما معتبر نیستند و اینجا تکرار نمی‌شوند. ۱۰۰هزار و یک میلیون هم اجرا نشده‌اند.

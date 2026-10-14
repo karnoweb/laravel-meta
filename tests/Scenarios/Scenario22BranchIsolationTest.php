@@ -5,29 +5,29 @@ declare(strict_types=1);
 namespace Karnoweb\Meta\Tests\Scenarios;
 
 use Karnoweb\Meta\Tests\Fixtures\Product;
-use Karnoweb\Meta\Tests\Fixtures\StaticTenantResolver;
+use Karnoweb\Meta\Tests\Fixtures\StaticBranchResolver;
 
-class Scenario22TenantIsolationTest extends ScenarioTestCase
+class Scenario22BranchIsolationTest extends ScenarioTestCase
 {
     public function test_complete_scenario(): void
     {
         config([
-            'meta.tenant.enabled' => true,
-            'meta.tenant.resolver' => StaticTenantResolver::class,
+            'meta.branch.enabled' => true,
+            'meta.branch.resolver' => StaticBranchResolver::class,
         ]);
         $product = $this->product('A');
 
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
         $product->setMeta('color', 'red');
         $product->setMeta('price', '10.00', versioned: true, type: 'decimal');
 
-        StaticTenantResolver::$key = 'tenant-b';
+        StaticBranchResolver::$key = 'branch-b';
         $product->setMeta('color', 'blue');
         $this->assertSame([], $this->ids(Product::query()->whereMeta('color', '=', 'red')->get()));
         $this->assertCount(0, $product->metaHistory('price'));
         $this->assertTrue($product->deleteMeta('color'));
 
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
         $this->assertSame('red', $product->getMeta('color'));
         $this->assertSame([$product->id], $this->ids(Product::query()->whereMeta('color', '=', 'red')->get()));
         $this->assertCount(1, $product->metaHistory('price'));

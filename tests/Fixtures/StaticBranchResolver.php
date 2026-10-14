@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Karnoweb\Meta\Tests\Fixtures;
 
-final class StaticTenantResolver
+final class StaticBranchResolver
 {
-    public static ?string $key = 'tenant-a';
+    public static ?string $key = 'branch-a';
 
     public function __invoke(): ?string
     {

@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Karnoweb\Meta\Facades\Meta;
 use Karnoweb\Meta\Tests\Fixtures\Product;
-use Karnoweb\Meta\Tests\Fixtures\StaticTenantResolver;
+use Karnoweb\Meta\Tests\Fixtures\StaticBranchResolver;
 use Karnoweb\Meta\Tests\TestCase;
 
 class MetaEagerLoadingTest extends TestCase
@@ -97,23 +97,23 @@ class MetaEagerLoadingTest extends TestCase
         $this->assertSame('blue', $loaded->getMeta('color'));
     }
 
-    public function test_tenant_switch_drops_the_loaded_snapshot(): void
+    public function test_branch_switch_drops_the_loaded_snapshot(): void
     {
         config([
-            'meta.tenant.enabled' => true,
-            'meta.tenant.resolver' => StaticTenantResolver::class,
+            'meta.branch.enabled' => true,
+            'meta.branch.resolver' => StaticBranchResolver::class,
         ]);
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
         $product = $this->product();
         $product->setMeta('color', 'red');
         $loaded = Product::query()->withMeta(['color'])->first();
         $this->assertSame('red', $loaded->getMeta('color'));
 
-        StaticTenantResolver::$key = 'tenant-b';
+        StaticBranchResolver::$key = 'branch-b';
         $loaded->setMeta('color', 'blue');
         $this->assertSame('blue', $loaded->getMeta('color'));
 
-        StaticTenantResolver::$key = 'tenant-a';
+        StaticBranchResolver::$key = 'branch-a';
         $this->assertSame('red', $loaded->getMeta('color'));
     }
 

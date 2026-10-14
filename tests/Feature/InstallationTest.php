@@ -37,7 +37,7 @@ class InstallationTest extends TestCase
         $indexes = collect(Schema::getIndexes('metas'))->pluck('name')->all();
         $this->assertContains('metas_owner_key_unique', $indexes);
         $this->assertContains('metas_owner_index', $indexes);
-        $this->assertContains('metas_string_lookup_index', $indexes);
+        $this->assertContains('metas_string_hash_index', $indexes);
         $this->assertContains('metas_integer_lookup_index', $indexes);
         $this->assertContains('metas_decimal_lookup_index', $indexes);
         $this->assertContains(
@@ -48,8 +48,8 @@ class InstallationTest extends TestCase
 
     public function test_config_cache_does_not_need_config_publication(): void
     {
-        $this->assertFalse(config('meta.tenant.enabled'));
-        $this->assertNull(config('meta.tenant.resolver'));
+        $this->assertFalse(config('meta.branch.enabled'));
+        $this->assertNull(config('meta.branch.resolver'));
         $this->assertSame(120, config('meta.max_key_length'));
         $this->assertSame(512, config('meta.max_string_length'));
         $this->assertSame(1048576, config('meta.max_json_bytes'));

@@ -88,12 +88,11 @@ class MetaSearchTest extends TestCase
         $this->assertSame([$laravel->id], $this->ids(Product::query()->whereMetaJsonContains('tags', 'vip')->get()));
         $this->assertSame([], $this->ids(Product::query()->whereMetaJsonContains('tags', 'missing')->get()));
 
-        $nested = $this->ids(Product::query()->whereMetaJsonContains('profile', ['tier' => ['name' => 'gold']])->get());
-
         if (DB::getDriverName() === 'sqlite') {
-            $this->assertSame([], $nested);
+            $this->expectException(\Karnoweb\Meta\Exceptions\MetaQueryException::class);
+            Product::query()->whereMetaJsonContains('profile', ['tier' => ['name' => 'gold']])->get();
         } else {
-            $this->assertSame([$laravel->id], $nested);
+            $this->assertSame([$laravel->id], $this->ids(Product::query()->whereMetaJsonContains('profile', ['tier' => ['name' => 'gold']])->get()));
         }
     }
 

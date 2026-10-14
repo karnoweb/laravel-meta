@@ -40,6 +40,14 @@ Trait و Facade هر دو به `MetaManager` و از آنجا به `MetaService`
 
 ## چند مقدار و null
 
+```php
+$product->getMetas(['color', 'count', 'note', 'missing']);
+$product->getMetas();
+$product->metaHistoryPage('price', 50);
+```
+
+`getMetas` کلید غایب و tombstone را حذف می‌کند و `null` صریح را نگه می‌دارد. آرایه خالی صفر کوئری است. `getMetas()` همه کلیدهای موجود را به ترتیب نام برمی‌گرداند. `metaHistoryPage` همان ترتیب `metaHistory` را صفحه‌بندی می‌کند.
+
 | وضعیت | `getMeta` | `hasMeta` |
 | --- | --- | --- |
 | کلید هرگز نوشته نشده | default | false |
@@ -84,4 +92,4 @@ class Product extends Model
 
 ## رابطه
 
-`$product->metas()` ردیف‌های root همان connection و tenant را برمی‌گرداند. مقدار نسخه‌دار روی خود root خالی است؛ مقدار جاری در آخرین نسخه است. مسیر خواندن مقدار نسخه‌دار `getMeta` / `withMeta` است، نه `with('metas')`.
+`$product->metas()` ردیف‌های root همان connection و branch را برمی‌گرداند. مقدار نسخه‌دار روی خود root خالی است؛ مقدار جاری در آخرین نسخه است. مسیر خواندن مقدار نسخه‌دار `getMeta` / `withMeta` است، نه `with('metas')`.

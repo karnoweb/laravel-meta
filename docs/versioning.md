@@ -48,7 +48,7 @@ $product->getMetaAt('price', '2027-01-21 00:00:00'); // 150.0000000000
 
 نسخه جدید بعد از tombstone کلید را دوباره موجود می‌کند. تا قبل از `effective_at` آن نسخه، کلید غایب می‌ماند.
 
-ردیف‌های `meta_versions` از طریق Eloquent قابل update و delete نیستند. پاکسازی فیزیکی فقط از مسیر purge و cascade انجام می‌شود و رویداد مدل نسخه را اجرا نمی‌کند.
+`metaHistoryPage($key, $perPage = 50)` همان ردیف‌ها را صفحه‌بندی می‌کند. ترتیب `effective_at` و سپس `id` است و فقط تاریخچه branch جاری را می‌بیند. `metaHistory` همچنان همه را یکجا برمی‌گرداند. ردیف نسخه از طریق Eloquent قابل update و delete نیست.
 
 ## audit
 

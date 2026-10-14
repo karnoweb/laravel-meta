@@ -2,7 +2,7 @@
 
 ## چه چیزی نصب می‌شود؟
 
-پکیج دو جدول می‌سازد و Trait و Facade را در دسترس می‌گذارد. config پیش‌فرض tenant را خاموش نگه می‌دارد. برای شروع کار، انتشار فایل لازم نیست.
+پکیج دو جدول می‌سازد و Trait و Facade را در دسترس می‌گذارد. config پیش‌فرض branch را خاموش نگه می‌دارد. برای شروع کار، انتشار فایل لازم نیست.
 
 ## دستورها
 
@@ -46,7 +46,7 @@ php artisan vendor:publish --tag=meta-config
 
 ## config:cache
 
-`config/meta.php` closure ندارد. `resolver` باید نام کلاس باشد تا `php artisan config:cache` خراب نشود. نمونه در [tenant.md](tenant.md) است.
+`config/meta.php` closure ندارد. `resolver` باید نام کلاس باشد تا `php artisan config:cache` خراب نشود. نمونه در [branch.md](branch.md) است.
 
 ## نیازمندی‌ها
 

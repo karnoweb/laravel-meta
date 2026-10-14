@@ -30,8 +30,7 @@ class MetaQuery
         $this->assertOperator($operator, $binding['type']);
 
         return $this->exists($query, $key, null, false, function (QueryBuilder $row, string $alias) use ($binding, $operator): void {
-            $row->where($alias.'.value_type', '=', $binding['type'])
-                ->where($alias.'.'.$binding['column'], $this->sqlOperator($operator), $binding['stored']);
+            $this->applyComparison($row, $alias, $binding, $operator);
         });
     }
 
@@ -41,8 +40,7 @@ class MetaQuery
         $this->assertOperator($operator, $binding['type']);
 
         return $this->exists($query, $key, MetaClock::parse($at), true, function (QueryBuilder $row, string $alias) use ($binding, $operator): void {
-            $row->where($alias.'.value_type', '=', $binding['type'])
-                ->where($alias.'.'.$binding['column'], $this->sqlOperator($operator), $binding['stored']);
+            $this->applyComparison($row, $alias, $binding, $operator);
         });
     }
 
@@ -74,6 +72,11 @@ class MetaQuery
             $binding = $this->binding($value, $type);
             $groups[$binding['type']]['column'] = $binding['column'];
             $groups[$binding['type']]['values'][] = $binding['stored'];
+
+            if ($binding['guard'] !== null) {
+                $groups[$binding['type']]['guard_column'] = $binding['guard']['column'];
+                $groups[$binding['type']]['guard_values'][] = $binding['guard']['stored'];
+            }
         }
 
         return $this->exists($query, $key, null, false, function (QueryBuilder $row, string $alias) use ($groups, $nulls): void {
@@ -84,6 +87,10 @@ class MetaQuery
                     $apply = function (QueryBuilder $one) use ($alias, $metaType, $group): void {
                         $one->where($alias.'.value_type', '=', $metaType)
                             ->whereIn($alias.'.'.$group['column'], $group['values']);
+
+                        if (isset($group['guard_column'])) {
+                            $one->whereIn($alias.'.'.$group['guard_column'], $group['guard_values']);
+                        }
                     };
 
                     if ($first) {
@@ -122,7 +129,7 @@ class MetaQuery
 
         $this->prepare($query, $key);
 
-        if (MetaValue::compare($left['type'], $left['stored'], $right['stored']) > 0) {
+        if (MetaValue::compare($left['type'], $left['compare'], $right['compare']) > 0) {
             return $query->whereRaw('1 = 0');
         }
 
@@ -155,6 +162,14 @@ class MetaQuery
             json_encode($fragment, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             throw new MetaQueryException('whereMetaJsonContains() requires a JSON-serializable fragment.');
+        }
+
+        if (is_array($fragment)) {
+            $this->prepare($query, $key);
+
+            if ($query->getConnection()->getDriverName() === 'sqlite') {
+                throw new MetaQueryException('whereMetaJsonContains() on SQLite accepts only a top-level array element. Nested containment is rejected instead of returning an empty result. Use MySQL or PostgreSQL for nested JSON.');
+            }
         }
 
         return $this->exists($query, $key, null, false, function (QueryBuilder $row, string $alias) use ($fragment): void {
@@ -192,6 +207,36 @@ class MetaQuery
         return MetaValue::binding($value, $type, $this->metas->maxString(), $this->metas->maxJson());
     }
 
+    /**
+     * @param  array{type: string, column: string, stored: mixed, compare: mixed, guard: array{column: string, stored: mixed}|null}  $binding
+     */
+    private function applyComparison(QueryBuilder $row, string $alias, array $binding, string $operator): void
+    {
+        $row->where($alias.'.value_type', '=', $binding['type']);
+        $column = $alias.'.'.$binding['column'];
+
+        if ($binding['guard'] === null) {
+            $row->where($column, $this->sqlOperator($operator), $binding['stored']);
+
+            return;
+        }
+
+        $guardColumn = $alias.'.'.$binding['guard']['column'];
+        $guardValue = $binding['guard']['stored'];
+
+        if (in_array($operator, ['!=', '<>'], true)) {
+            $row->where(function (QueryBuilder $mismatch) use ($column, $binding, $guardColumn, $guardValue): void {
+                $mismatch->where($column, '<>', $binding['stored'])
+                    ->orWhere($guardColumn, '<>', $guardValue);
+            });
+
+            return;
+        }
+
+        $row->where($column, '=', $binding['stored'])
+            ->where($guardColumn, '=', $guardValue);
+    }
+
     private function assertOperator(string $operator, string $type): void
     {
         if (! in_array($operator, self::OPERATORS, true)) {
@@ -211,7 +256,7 @@ class MetaQuery
     private function prepare(Builder $query, string $key): void
     {
         $this->metas->assertKey($query->getModel(), $key);
-        $this->metas->tenantKey();
+        $this->metas->branchKey();
     }
 
     private function exists(
@@ -225,17 +270,17 @@ class MetaQuery
         $this->prepare($query, $key);
 
         $model = $query->getModel();
-        $tenant = $this->metas->tenantKey();
+        $branch = $this->metas->branchKey();
         $morph = $model->getMorphClass();
         $asOf ??= MetaClock::now();
         $asOfValue = MetaClock::format($asOf);
         $cast = $this->ownerKeyCast($query);
         $method = $negate ? 'whereNotExists' : 'whereExists';
 
-        $query->{$method}(function (QueryBuilder $meta) use ($model, $tenant, $morph, $key, $cast, $predicate, $versionedOnly, $asOfValue): void {
+        $query->{$method}(function (QueryBuilder $meta) use ($model, $branch, $morph, $key, $cast, $predicate, $versionedOnly, $asOfValue): void {
             $meta->selectRaw('1')
                 ->from('metas')
-                ->where('metas.tenant_key', '=', $tenant)
+                ->where('metas.branch_key', '=', $branch)
                 ->where('metas.metable_type', '=', $morph)
                 ->whereRaw('metas.metable_id = '.$cast)
                 ->where('metas.key', '=', $key)
