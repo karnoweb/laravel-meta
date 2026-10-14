@@ -1,0 +1,119 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sqlite:
+    name: PHP ${{ matrix.php }} / SQLite
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_sqlite, sqlite3
+          coverage: none
+
+      - name: Validate composer.json
+        run: composer validate --strict --no-check-publish
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Pint
+        run: vendor/bin/pint --test
+
+      - name: PHP syntax
+        run: find src tests config database bench -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Feature and scenario tests
+        run: vendor/bin/phpunit --do-not-cache-result --testsuite Feature,Scenarios
+
+      - name: SQLite integration
+        run: vendor/bin/phpunit --do-not-cache-result --testsuite Integration
+
+  mysql:
+    name: PHP 8.4 / MySQL 8
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: meta_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_mysql
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Integration
+        env:
+          META_INTEGRATION: '1'
+          META_DB_DRIVER: mysql
+          META_DB_HOST: 127.0.0.1
+          META_DB_PORT: '3306'
+          META_DB_DATABASE: meta_test
+          META_DB_USERNAME: root
+          META_DB_PASSWORD: root
+        run: vendor/bin/phpunit --do-not-cache-result --testsuite Integration
+
+  pgsql:
+    name: PHP 8.4 / PostgreSQL 16
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: root
+          POSTGRES_DB: meta_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d meta_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Integration
+        env:
+          META_INTEGRATION: '1'
+          META_DB_DRIVER: pgsql
+          META_DB_HOST: 127.0.0.1
+          META_DB_PORT: '5432'
+          META_DB_DATABASE: meta_test
+          META_DB_USERNAME: postgres
+          META_DB_PASSWORD: root
+        run: vendor/bin/phpunit --do-not-cache-result --testsuite Integration
