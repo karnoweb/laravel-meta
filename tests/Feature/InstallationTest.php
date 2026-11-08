@@ -28,7 +28,8 @@ class InstallationTest extends TestCase
         $migrations = ServiceProvider::pathsToPublish(MetaServiceProvider::class, 'meta-migrations');
 
         $this->assertNotEmpty($config);
-        $this->assertSame([], $migrations);
+        $this->assertSame([database_path('migrations')], array_values($migrations));
+        $this->assertDirectoryExists(array_key_first($migrations));
 
         foreach (array_keys($config) as $source) {
             $this->assertStringNotContainsString('migrations', str_replace('\\', '/', (string) $source));

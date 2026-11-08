@@ -36,7 +36,13 @@ $product->getMeta('color'); // red
 php artisan vendor:publish --tag=meta-config
 ```
 
-این دستور migration را کپی نمی‌کند. تگ دیگری برای migration وجود ندارد.
+مایگریشن‌ها از خود پکیج با `loadMigrationsFrom` اجرا می‌شوند؛ publish برای شروع لازم نیست. فقط در موارد استثنا (مثلاً نیاز به ویرایش محلی schema) می‌توانید کپی کنید:
+
+```bash
+php artisan vendor:publish --tag=meta-migrations
+```
+
+نام فایل‌های منتشرشده همان نام ثابت داخل پکیج می‌ماند.
 
 ## نام ثابت migration
 

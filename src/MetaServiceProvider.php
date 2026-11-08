@@ -27,6 +27,10 @@ class MetaServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__.'/../config/meta.php' => config_path('meta.php'),
             ], 'meta-config');
+
+            $this->publishes([
+                __DIR__.'/../database/migrations' => database_path('migrations'),
+            ], 'meta-migrations');
         }
     }
 }

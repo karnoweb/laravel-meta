@@ -91,7 +91,8 @@ return new class extends Migration
             $table->dropUnique('metas_owner_key_unique');
         });
 
-        DB::statement("alter table metas modify branch_key varchar(64) not null default '' collate utf8mb4_0900_bin");
+        $collation = $this->binaryUtf8mb4Collation();
+        DB::statement("alter table metas modify branch_key varchar(64) not null default '' collate {$collation}");
 
         Schema::table('metas', function (Blueprint $table): void {
             $table->unique(
@@ -172,5 +173,20 @@ return new class extends Migration
     private function mysql(): bool
     {
         return in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true);
+    }
+
+    private function binaryUtf8mb4Collation(): string
+    {
+        $version = strtolower((string) Schema::getConnection()->getServerVersion());
+
+        if (str_contains($version, 'maria')) {
+            return 'utf8mb4_bin';
+        }
+
+        if (str_starts_with($version, '8.')) {
+            return 'utf8mb4_0900_bin';
+        }
+
+        return 'utf8mb4_bin';
     }
 };

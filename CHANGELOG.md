@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 13.0.2 — 2026-11-08
+
+- migration پایه روی MariaDB و MySQL قدیمی‌تر از 8 دیگر `utf8mb4_0900_bin` ثابت نمی‌زند؛ `branch_key` با `utf8mb4_bin` یا `utf8mb4_0900_bin` بسته به نسخه سرور.
+- تگ `meta-migrations` برای `vendor:publish` (اختیاری؛ بارگذاری خودکار migration همچنان پیش‌فرض است).
+
 ## 13.0.0 — 2026-10-14
 
 - کلید branch روی MySQL با collation باینری ذخیره می‌شود. `Branch-A` و `branch-a` جدا هستند. فاصله و غیر NFC رد می‌شود.

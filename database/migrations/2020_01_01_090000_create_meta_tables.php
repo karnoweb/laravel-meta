@@ -84,8 +84,23 @@ return new class extends Migration
         $column = $table->string('branch_key', 64)->default('');
 
         if ($this->mysql()) {
-            $column->collation('utf8mb4_0900_bin');
+            $column->collation($this->binaryUtf8mb4Collation());
         }
+    }
+
+    private function binaryUtf8mb4Collation(): string
+    {
+        $version = strtolower((string) Schema::getConnection()->getServerVersion());
+
+        if (str_contains($version, 'maria')) {
+            return 'utf8mb4_bin';
+        }
+
+        if (str_starts_with($version, '8.')) {
+            return 'utf8mb4_0900_bin';
+        }
+
+        return 'utf8mb4_bin';
     }
 
     private function exactColumns(Blueprint $table): void
